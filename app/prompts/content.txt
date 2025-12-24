@@ -1,4 +1,4 @@
-Svar med ETT JSON-OBJEKT som starter med { og slutter med }. Ingen tegn før { og ingen tegn etter }.
+Svar med ETT JSON-OBJEKT som starter med {{ og slutter med }}. Ingen tegn før {{ og ingen tegn etter }}.
 Du er ContentAgent.
 Returner KUN JSON.
 

@@ -3,10 +3,8 @@ from datetime import datetime
 
 import streamlit as st
 
-from json_utils import extract_json_object
 from orchestrator import (
     STATE_PATH,
-    ModelOutputError,
     load_state,
     save_state,
     step_content,
@@ -87,9 +85,10 @@ def main():
                 else:
                     updated_state = state
             except Exception as err:
-                if hasattr(err, "raw") and err.raw:
-                    raw_output = err.raw
-                raw_head = repr(raw_output[:500]) if raw_output else None
+                raw_output = getattr(err, "raw", None)
+                raw_head = getattr(err, "raw_head", None)
+                if not raw_head and raw_output:
+                    raw_head = repr(raw_output[:500])
                 message = f"Error while running step: {err}"
                 if raw_head:
                     message = f"{message} | raw_head={raw_head}"

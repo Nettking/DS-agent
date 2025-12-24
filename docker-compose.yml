@@ -21,5 +21,18 @@ services:
     stdin_open: true
     tty: true
 
+  ui:
+    build: .
+    container_name: mvp-agent-ui
+    command: ["streamlit", "run", "app/ui.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    env_file:
+      - .env
+    depends_on:
+      - localai
+    volumes:
+      - ./app/data:/app/app/data
+    ports:
+      - "8501:8501"
+
 volumes:
   localai_models:

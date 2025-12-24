@@ -1,7 +1,7 @@
 import json, os
 from pathlib import Path
 from dotenv import load_dotenv
-from schema import State, ResearchOut, PricingOut, ContentOut
+from schema import ContentOut, PricingOut, ResearchOut, State
 from localai_client import chat_completion
 
 load_dotenv()
@@ -29,23 +29,47 @@ def run_agent(prompt_name, input_json):
     raw = chat_completion(SYSTEM_PROMPT,user)
     return json.loads(raw.strip().strip("`").replace("json","",1))
 
+def step_research(state: State) -> State:
+    if state.stage != "INIT":
+        return state
+    output = run_agent("research.txt", state.model_dump())
+    research = ResearchOut(**output)
+    updated = state.model_copy(deep=True)
+    updated.research = research
+    updated.stage = "RESEARCH_DONE" if research.next == "PRICING" else "STOPPED"
+    return updated
+
+def step_pricing(state: State) -> State:
+    if state.stage != "RESEARCH_DONE":
+        return state
+    output = run_agent("pricing.txt", state.model_dump())
+    pricing = PricingOut(**output)
+    updated = state.model_copy(deep=True)
+    updated.pricing = pricing
+    updated.stage = "PRICING_DONE" if pricing.next == "CONTENT" else "STOPPED"
+    return updated
+
+def step_content(state: State) -> State:
+    if state.stage != "PRICING_DONE":
+        return state
+    output = run_agent("content.txt", state.model_dump())
+    content = ContentOut(**output)
+    updated = state.model_copy(deep=True)
+    updated.content = content
+    updated.stage = "HUMAN_REVIEW"
+    return updated
+
 def main():
     s = load_state()
 
     if s.stage=="INIT":
-        out = ResearchOut(**run_agent("research.txt", s.model_dump()))
-        s.research = out
-        s.stage = "RESEARCH_DONE" if out.next=="PRICING" else "STOPPED"
+        s = step_research(s)
 
     if s.stage=="RESEARCH_DONE":
-        out = PricingOut(**run_agent("pricing.txt", s.model_dump()))
-        s.pricing = out
-        s.stage = "PRICING_DONE" if out.next=="CONTENT" else "STOPPED"
+        s = step_pricing(s)
 
     if s.stage=="PRICING_DONE":
-        out = ContentOut(**run_agent("content.txt", s.model_dump()))
-        s.content = out
-        s.stage = "HUMAN_REVIEW"
+        s = step_content(s)
 
     save_state(s)
     print("Stage:", s.stage)

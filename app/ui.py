@@ -39,7 +39,10 @@ def reset_pipeline(state, reason: str):
 
 def persist_and_rerun(state):
     save_state(state)
-    st.experimental_rerun()
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
 
 
 def display_json_block(title: str, payload):

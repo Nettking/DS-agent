@@ -1,0 +1,25 @@
+services:
+  localai:
+    image: localai/localai:latest
+    container_name: localai
+    ports:
+      - "8080:8080"
+    environment:
+      - TZ=Europe/Oslo
+    volumes:
+      - localai_models:/models
+
+  mvp:
+    build: .
+    container_name: mvp-agent
+    env_file:
+      - .env
+    depends_on:
+      - localai
+    volumes:
+      - ./app/data:/app/app/data
+    stdin_open: true
+    tty: true
+
+volumes:
+  localai_models:

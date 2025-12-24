@@ -7,7 +7,7 @@ load_dotenv()
 BASE_URL = os.getenv("LOCALAI_BASE_URL","http://localhost:8080").rstrip("/")
 MODEL = os.getenv("LOCALAI_MODEL","ggml-gpt4all-j")
 
-def chat_completion(system_prompt,user_prompt,temperature=0.2):
+def chat_completion(system_prompt,user_prompt,temperature=0.0):
     url = f"{BASE_URL}/v1/chat/completions"
     payload = {
         "model": MODEL,

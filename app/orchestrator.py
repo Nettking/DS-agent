@@ -10,6 +10,20 @@ PROMPTS = Path(__file__).parent / "prompts"
 
 SYSTEM_PROMPT = "Du returnerer KUN gyldig JSON. Ingen ekstra tekst."
 
+
+def extract_json_object(raw: str) -> dict:
+    s = (raw or "").strip()
+    if s.startswith("```"):
+        s = s.replace("```json", "").replace("```", "").strip()
+    first = s.find("{")
+    last = s.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        try:
+            return json.loads(s[first : last + 1])
+        except json.JSONDecodeError as err:
+            raise ValueError(f"Failed to parse JSON object from model output. Head: {s[:300]!r}") from err
+    raise ValueError(f"No JSON object found in model output. Head: {s[:300]!r}")
+
 def load_state():
     p = Path(STATE_PATH)
     if p.exists():
@@ -27,7 +41,7 @@ def run_agent(prompt_name, input_json):
     prompt = (PROMPTS/prompt_name).read_text()
     user = prompt.format(input_json=json.dumps(input_json,ensure_ascii=False))
     raw = chat_completion(SYSTEM_PROMPT,user)
-    return json.loads(raw.strip().strip("`").replace("json","",1))
+    return extract_json_object(raw)
 
 def step_research(state: State) -> State:
     if state.stage != "INIT":

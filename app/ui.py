@@ -3,8 +3,10 @@ from datetime import datetime
 
 import streamlit as st
 
+from json_utils import extract_json_object
 from orchestrator import (
     STATE_PATH,
+    ModelOutputError,
     load_state,
     save_state,
     step_content,
@@ -71,6 +73,7 @@ def main():
             persist_and_rerun(updated_state)
 
         if run_clicked:
+            raw_output = None
             try:
                 if state.stage == "INIT":
                     updated_state = step_research(state)
@@ -84,7 +87,12 @@ def main():
                 else:
                     updated_state = state
             except Exception as err:
+                if hasattr(err, "raw") and err.raw:
+                    raw_output = err.raw
+                raw_head = repr(raw_output[:500]) if raw_output else None
                 message = f"Error while running step: {err}"
+                if raw_head:
+                    message = f"{message} | raw_head={raw_head}"
                 log_event(state, message, level="error")
                 save_state(state)
                 st.error(message)

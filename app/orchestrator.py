@@ -1,8 +1,12 @@
 import json, os
+from datetime import datetime
 from pathlib import Path
+
 from dotenv import load_dotenv
-from schema import ContentOut, PricingOut, ResearchOut, State
+
+from json_utils import extract_json_object
 from localai_client import chat_completion
+from schema import ContentOut, PricingOut, ResearchOut, State
 
 load_dotenv()
 STATE_PATH = os.getenv("STATE_PATH","/app/app/data/state.json")
@@ -11,18 +15,16 @@ PROMPTS = Path(__file__).parent / "prompts"
 SYSTEM_PROMPT = "Du returnerer KUN gyldig JSON. Ingen ekstra tekst."
 
 
-def extract_json_object(raw: str) -> dict:
-    s = (raw or "").strip()
-    if s.startswith("```"):
-        s = s.replace("```json", "").replace("```", "").strip()
-    first = s.find("{")
-    last = s.rfind("}")
-    if first != -1 and last != -1 and last > first:
-        try:
-            return json.loads(s[first : last + 1])
-        except json.JSONDecodeError as err:
-            raise ValueError(f"Failed to parse JSON object from model output. Head: {s[:300]!r}") from err
-    raise ValueError(f"No JSON object found in model output. Head: {s[:300]!r}")
+def log_event(state, message: str, level: str = "info"):
+    state.audit_log.append(
+        {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": level,
+            "stage": state.stage,
+            "message": message,
+        }
+    )
+
 
 def load_state():
     p = Path(STATE_PATH)
@@ -37,16 +39,25 @@ def save_state(state):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(state.model_dump_json(indent=2))
 
+class ModelOutputError(ValueError):
+    def __init__(self, message: str, raw: str | None = None):
+        super().__init__(message)
+        self.raw = raw
+
+
 def run_agent(prompt_name, input_json):
-    prompt = (PROMPTS/prompt_name).read_text()
-    user = prompt.format(input_json=json.dumps(input_json,ensure_ascii=False))
-    raw = chat_completion(SYSTEM_PROMPT,user)
-    return extract_json_object(raw)
+    prompt = (PROMPTS / prompt_name).read_text()
+    user = prompt.format(input_json=json.dumps(input_json, ensure_ascii=False))
+    raw = chat_completion(SYSTEM_PROMPT, user, temperature=0.0)
+    try:
+        return extract_json_object(raw), raw
+    except Exception as err:
+        raise ModelOutputError(f"Failed to parse model output: {err}", raw=raw) from err
 
 def step_research(state: State) -> State:
     if state.stage != "INIT":
         return state
-    output = run_agent("research.txt", state.model_dump())
+    output, _raw = run_agent("research.txt", state.model_dump())
     research = ResearchOut(**output)
     updated = state.model_copy(deep=True)
     updated.research = research
@@ -56,7 +67,7 @@ def step_research(state: State) -> State:
 def step_pricing(state: State) -> State:
     if state.stage != "RESEARCH_DONE":
         return state
-    output = run_agent("pricing.txt", state.model_dump())
+    output, _raw = run_agent("pricing.txt", state.model_dump())
     pricing = PricingOut(**output)
     updated = state.model_copy(deep=True)
     updated.pricing = pricing
@@ -66,7 +77,7 @@ def step_pricing(state: State) -> State:
 def step_content(state: State) -> State:
     if state.stage != "PRICING_DONE":
         return state
-    output = run_agent("content.txt", state.model_dump())
+    output, _raw = run_agent("content.txt", state.model_dump())
     content = ContentOut(**output)
     updated = state.model_copy(deep=True)
     updated.content = content
@@ -76,14 +87,26 @@ def step_content(state: State) -> State:
 def main():
     s = load_state()
 
-    if s.stage=="INIT":
-        s = step_research(s)
+    try:
+        if s.stage == "INIT":
+            s = step_research(s)
 
-    if s.stage=="RESEARCH_DONE":
-        s = step_pricing(s)
+        if s.stage == "RESEARCH_DONE":
+            s = step_pricing(s)
 
-    if s.stage=="PRICING_DONE":
-        s = step_content(s)
+        if s.stage == "PRICING_DONE":
+            s = step_content(s)
+    except Exception as err:
+        raw_head = None
+        if hasattr(err, "raw") and err.raw:
+            raw_head = repr(err.raw[:500])
+        message = f"Error while running step: {err}"
+        if raw_head:
+            message = f"{message} | raw_head={raw_head}"
+        log_event(s, message, level="error")
+        save_state(s)
+        print(message)
+        return
 
     save_state(s)
     print("Stage:", s.stage)

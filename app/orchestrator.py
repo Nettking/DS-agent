@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from json_utils import extract_json_object
+from json_guard import call_json
 from localai_client import chat_completion
 from schema import ContentOut, PricingOut, ResearchOut, State
 
@@ -39,25 +39,19 @@ def save_state(state):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(state.model_dump_json(indent=2))
 
-class ModelOutputError(ValueError):
-    def __init__(self, message: str, raw: str | None = None):
-        super().__init__(message)
-        self.raw = raw
-
-
 def run_agent(prompt_name, input_json):
     prompt = (PROMPTS / prompt_name).read_text()
-    user = prompt.format(input_json=json.dumps(input_json, ensure_ascii=False))
-    raw = chat_completion(SYSTEM_PROMPT, user, temperature=0.0)
-    try:
-        return extract_json_object(raw), raw
-    except Exception as err:
-        raise ModelOutputError(f"Failed to parse model output: {err}", raw=raw) from err
+    system_prompt = f"{prompt}\n\n{SYSTEM_PROMPT}"
+    return call_json(
+        lambda system, user: chat_completion(system, user, temperature=0.0),
+        system_prompt,
+        input_json,
+    )
 
 def step_research(state: State) -> State:
     if state.stage != "INIT":
         return state
-    output, _raw = run_agent("research.txt", state.model_dump())
+    output = run_agent("research.txt", state.model_dump())
     research = ResearchOut(**output)
     updated = state.model_copy(deep=True)
     updated.research = research
@@ -67,7 +61,7 @@ def step_research(state: State) -> State:
 def step_pricing(state: State) -> State:
     if state.stage != "RESEARCH_DONE":
         return state
-    output, _raw = run_agent("pricing.txt", state.model_dump())
+    output = run_agent("pricing.txt", state.model_dump())
     pricing = PricingOut(**output)
     updated = state.model_copy(deep=True)
     updated.pricing = pricing
@@ -77,7 +71,7 @@ def step_pricing(state: State) -> State:
 def step_content(state: State) -> State:
     if state.stage != "PRICING_DONE":
         return state
-    output, _raw = run_agent("content.txt", state.model_dump())
+    output = run_agent("content.txt", state.model_dump())
     content = ContentOut(**output)
     updated = state.model_copy(deep=True)
     updated.content = content
@@ -97,9 +91,9 @@ def main():
         if s.stage == "PRICING_DONE":
             s = step_content(s)
     except Exception as err:
-        raw_head = None
-        if hasattr(err, "raw") and err.raw:
-            raw_head = repr(err.raw[:500])
+        raw_head = getattr(err, "raw_head", None)
+        if not raw_head and hasattr(err, "raw") and isinstance(err.raw, str):  # type: ignore[attr-defined]
+            raw_head = repr(err.raw[:500])  # type: ignore[attr-defined]
         message = f"Error while running step: {err}"
         if raw_head:
             message = f"{message} | raw_head={raw_head}"

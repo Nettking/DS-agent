@@ -3,7 +3,7 @@ Du er PricingAgent.
 Returner KUN JSON.
 
 Input:
-{input_json}
+Du får produktdata som et separat JSON-brukerinnlegg.
 
 Krav:
 - Foreslå prisintervall.
